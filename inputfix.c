@@ -1,60 +1,67 @@
 #include <stdio.h>
-#include <unistd.h>
+#include <objc/runtime.h>
+#include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
-#include <string.h>
-
-// 移除Substrate依赖，使用函数指针钩子
-typedef void (*InputUpdate_Func)(void* instance);
-static InputUpdate_Func orig_InputUpdate = NULL;
-
-// 函数指针类型定义
-typedef void (*MSHookFunction_type)(void *symbol, void *replace, void **result);
-static MSHookFunction_type MSHookFunction_ptr = NULL;
+#include <dispatch/dispatch.h>
 
 #define KEY_TIMEOUT 1500
 
-void fixed_InputUpdate(void* instance) {
-    if (orig_InputUpdate) orig_InputUpdate(instance);
+// 定义目标类和方法（需根据实际应用调整）
+static const char *TARGET_CLASS = "UnityEngine.Input";
+static const char *TARGET_METHOD = "updateInput";
+
+// 原始方法实现
+static IMP original_UpdateInput = NULL;
+
+// 修复方法实现
+void fixed_UpdateInput(id self, SEL _cmd) {
+    // 调用原始实现
+    if (original_UpdateInput) {
+        ((void (*)(id, SEL))original_UpdateInput)(self, _cmd);
+    }
     
-    void* inputQueue = *(void**)((uintptr_t)instance + 0x38);
+    // 获取输入队列（需根据实际类结构调整）
+    void *inputQueue = NULL;
+    object_getInstanceVariable(self, "_inputQueue", (void **)&inputQueue);
+    
     if (!inputQueue) return;
     
+    // 遍历输入队列（ARM64 结构）
     for (int i = 0; i < 32; i++) {
         uintptr_t keyEntry = (uintptr_t)inputQueue + 0x40 + i * 0x18;
         int* keyState = (int*)(keyEntry + 0x10);
         
         if (*keyState > KEY_TIMEOUT) {
-            *keyState = 0;
-            printf("[InputFix] Reset stuck key at %lu\n", keyEntry);
+            *keyState = 0; // 重置状态
+            
+            // 使用系统日志（可在 Xcode 控制台查看）
+            os_log(OS_LOG_DEFAULT, "[InputFix] Reset stuck key at %lu", (uintptr_t)keyEntry);
         }
     }
 }
 
 __attribute__((constructor)) static void init() {
-    // 动态加载Substrate (如果存在)
-    void *handle = dlopen("/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate", RTLD_LAZY);
-    if (handle) {
-        MSHookFunction_ptr = (MSHookFunction_type)dlsym(handle, "MSHookFunction");
-    }
-    
-    uintptr_t base = _dyld_get_image_vmaddr_slide(0);
-    unsigned char pattern[] = {0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91};
-    
-    for (uintptr_t p = base; p < base + 0x1000000; p += 4) {
-        if (memcmp((void*)p, pattern, 8) == 0) {
-            printf("[InputFix] Found target at 0x%lx\n", p);
-            
-            if (MSHookFunction_ptr) {
-                // 使用Substrate钩子
-                MSHookFunction_ptr((void*)p, (void*)fixed_InputUpdate, (void**)&orig_InputUpdate);
-                printf("[InputFix] Hooked with Substrate\n");
-            } else {
-                // 回退方案：直接覆盖函数指针
-                orig_InputUpdate = *(InputUpdate_Func*)p;
-                *(void**)p = fixed_InputUpdate;
-                printf("[InputFix] Hooked with function pointer override\n");
-            }
-            break;
+    // 延迟执行，确保运行时已初始化
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        // 获取目标类
+        Class targetClass = objc_getClass(TARGET_CLASS);
+        if (!targetClass) {
+            os_log(OS_LOG_DEFAULT, "[InputFix] Target class not found");
+            return;
         }
-    }
+        
+        // 获取目标方法
+        SEL targetSelector = sel_registerName(TARGET_METHOD);
+        Method targetMethod = class_getInstanceMethod(targetClass, targetSelector);
+        if (!targetMethod) {
+            os_log(OS_LOG_DEFAULT, "[InputFix] Target method not found");
+            return;
+        }
+        
+        // 交换方法实现
+        original_UpdateInput = method_getImplementation(targetMethod);
+        method_setImplementation(targetMethod, (IMP)fixed_UpdateInput);
+        
+        os_log(OS_LOG_DEFAULT, "[InputFix] Successfully hooked input update");
+    });
 }
