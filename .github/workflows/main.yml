@@ -1,4 +1,4 @@
-name: Build iOS Input Fix dylib
+name: Build Non-Jailbroken iOS dylib
 
 on:
   push:
@@ -15,35 +15,34 @@ jobs:
     
     - name: Install iOS dependencies
       run: |
-        # 安装iOS开发工具链
         sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
         sudo xcodebuild -license accept
-        brew install ldid # 用于iOS签名
-    
-    - name: Build dylib for iOS
+        brew install ldid
+        
+    - name: Build dylib
       run: |
-        # 设置iOS SDK路径
         SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
         
-        # 编译为iOS动态库 (arm64架构)
+        # 编译为位置无关的动态库
         clang -arch arm64 \
               -isysroot $SDK_PATH \
               -framework Foundation \
+              -framework UIKit \
               -dynamiclib \
+              -fobjc-arc \
               -fPIC \
-              -F . \
               -o libInputFix.dylib \
               inputfix.c
         
-        # 为iOS设备签名 (使用临时证书)
+        # 为动态库签名（使用临时证书）
         ldid -S libInputFix.dylib
         
         # 验证文件
         file libInputFix.dylib
-        otool -hv libInputFix.dylib
+        otool -L libInputFix.dylib
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ios-dylib-output
+        name: non-jb-dylib-output
         path: libInputFix.dylib
