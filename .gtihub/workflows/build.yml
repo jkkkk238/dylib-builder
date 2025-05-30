@@ -1,0 +1,28 @@
+name: Build macOS dylib
+
+on:
+  push:
+    branches: [ "main" ]   # 代码推送到main分支时触发
+  workflow_dispatch:        # 允许手动触发
+
+jobs:
+  build:
+    runs-on: macOS-latest   # 使用苹果官方虚拟机
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4  # 拉取代码
+      
+    - name: Build dylib
+      run: |
+        # 编译动态库 (使用macOS原生编译器)
+        gcc -shared -fPIC -pthread reset_keys.c -o libreset.dylib
+        
+        # 验证文件格式
+        file libreset.dylib
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: dylib-output   # 打包名称
+        path: libreset.dylib # 上传编译结果
