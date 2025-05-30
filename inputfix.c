@@ -3,6 +3,7 @@
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
 #include <dispatch/dispatch.h>
+#include <os/log.h> // 添加 os_log 支持
 
 #define KEY_TIMEOUT 1500
 
@@ -41,8 +42,11 @@ void fixed_UpdateInput(id self, SEL _cmd) {
 }
 
 __attribute__((constructor)) static void init() {
-    // 延迟执行，确保运行时已初始化
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    // 修复 dispatch_time 使用方式
+    dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC));
+    
+    // 使用正确的 dispatch_after 语法
+    dispatch_after(when, dispatch_get_main_queue(), ^{
         // 获取目标类
         Class targetClass = objc_getClass(TARGET_CLASS);
         if (!targetClass) {
