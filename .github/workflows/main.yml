@@ -1,13 +1,9 @@
-name: Build macOS dylib
+name: Build iOS Input Fix dylib
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  actions: write
 
 jobs:
   build:
@@ -17,20 +13,37 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Install dependencies
+    - name: Install iOS dependencies
       run: |
-        xcode-select --install || true
-        brew install gcc || true
-        
-    - name: Build dylib
+        # 安装iOS开发工具链
+        sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        sudo xcodebuild -license accept
+        brew install ldid # 用于iOS签名
+    
+    - name: Build dylib for iOS
       run: |
-        gcc -shared -fPIC reset_keys.c -o libreset.dylib
+        # 设置iOS SDK路径
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
         
-    - name: Verify output
-      run: file libreset.dylib
-      
+        # 编译为iOS动态库 (arm64架构)
+        clang -arch arm64 \
+              -isysroot $SDK_PATH \
+              -framework Foundation \
+              -dynamiclib \
+              -fPIC \
+              -F . \
+              -o libInputFix.dylib \
+              inputfix.c
+        
+        # 为iOS设备签名 (使用临时证书)
+        ldid -S libInputFix.dylib
+        
+        # 验证文件
+        file libInputFix.dylib
+        otool -hv libInputFix.dylib
+        
     - name: Upload artifact
-      uses: actions/upload-artifact@v4  # 使用 v4 版本
+      uses: actions/upload-artifact@v4
       with:
-        name: dylib-output
-        path: libreset.dylib
+        name: ios-dylib-output
+        path: libInputFix.dylib
